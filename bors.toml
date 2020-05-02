@@ -1,5 +1,7 @@
 status = [
-  "continuous-integration/travis-ci/push",
+  "Tests (stable)",
+  "Tests (nightly)",
+  "Format: stable",
 ]
 
 block_labels = [
