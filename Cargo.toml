@@ -1,0 +1,22 @@
+[package]
+name = "ron"
+version = "0.7.0"
+edition = "2018"
+
+authors = [
+    "Dzmitry Malyshau <kvarkus@gmail.com>",
+    "Thomas Schaller <torkleyy@gmail.com>",
+    "Christopher Durham (CAD97) <cad97@cad97.com>",
+]
+license = "MIT OR Apache-2.0"
+description = "Rusty Object Notation"
+readme = "README.md"
+repository = "https://github.com/ron-rs/ron"
+
+exclude = [
+    "bors.toml",
+    ".github",
+]
+
+[dependencies]
+indexmap = "1.3"
