@@ -1,3 +1,9 @@
+pub mod error;
 pub mod value;
 
-pub use self::value::Value;
+pub mod parse;
+
+pub use self::{
+    error::{Error, Result},
+    value::Value,
+};
