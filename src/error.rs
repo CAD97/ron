@@ -11,12 +11,12 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug)]
 pub struct Error {
-    pos: Position,
-    code: Code,
+    pub(crate) pos: Position,
+    pub(crate) code: Code,
 }
 
 #[derive(Debug)]
-enum Code {
+pub(crate) enum Code {
     Message(Box<str>),
     Io(io::Error),
     Base64(base64::DecodeError),
@@ -82,6 +82,21 @@ impl Error {
         Error {
             pos: Position::default(),
             code: Code::Message(msg.into_boxed_str()),
+        }
+    }
+}
+
+impl From<io::Error> for Code {
+    fn from(err: io::Error) -> Self {
+        Code::Io(err)
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Error {
+            pos: Position::default(),
+            code: err.into(),
         }
     }
 }

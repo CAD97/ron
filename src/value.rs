@@ -110,12 +110,12 @@ pub enum Sign {
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Integer {
-    raw: u128,
+    pub(crate) raw: u128,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct Float {
-    raw: f64,
+    pub(crate) raw: f64,
 }
 
 // indexmap::IndexMap doesn't provide Hash
@@ -162,10 +162,12 @@ mod sealed {
 
     pub trait uint: Copy {
         fn make_opaque(i: Self) -> Integer;
+        fn from_opaque(i: Integer) -> Option<Self>;
     }
 
     pub trait float: Copy {
-        fn make_opaque(i: Self) -> Float;
+        fn make_opaque(f: Self) -> Float;
+        fn from_opaque(f: Float) -> Self;
     }
 
     macro_rules! impl_uint {
@@ -173,6 +175,9 @@ mod sealed {
             impl uint for $t {
                 fn make_opaque(i: Self) -> Integer {
                     Integer { raw: i.into() }
+                }
+                fn from_opaque(i: Integer) -> Option<Self> {
+                    i.raw.try_into().ok()
                 }
             }
         )*};
@@ -183,6 +188,9 @@ mod sealed {
             impl float for $t {
                 fn make_opaque(f: Self) -> Float {
                     Float { raw: f.into() }
+                }
+                fn from_opaque(f: Float) -> Self {
+                    f.raw as _
                 }
             }
         )*};
@@ -207,22 +215,16 @@ impl<float: sealed::float> From<float> for Float {
 }
 
 impl Integer {
-    pub fn as_u64(self) -> Option<u64> {
-        self.raw.try_into().ok()
-    }
-
-    pub fn as_u128(self) -> Option<u128> {
-        self.raw.try_into().ok()
+    #[allow(non_camel_case_types)]
+    pub fn as_int<uint: sealed::uint>(self) -> Option<uint> {
+        uint::from_opaque(self)
     }
 }
 
 impl Float {
-    pub fn as_f32(self) -> f32 {
-        self.raw as _
-    }
-
-    pub fn as_f64(self) -> f64 {
-        self.raw as _
+    #[allow(non_camel_case_types)]
+    pub fn as_float<float: sealed::float>(self) -> float {
+        float::from_opaque(self)
     }
 }
 
@@ -272,7 +274,7 @@ impl Value {
 
     pub fn as_u64(&self) -> Option<u64> {
         match *self {
-            Value::Signed(Sign::Positive, int) | Value::Unsigned(int) => int.as_u64(),
+            Value::Signed(Sign::Positive, int) | Value::Unsigned(int) => int.as_int(),
             _ => None,
         }
     }
@@ -280,24 +282,21 @@ impl Value {
     pub fn as_i64(&self) -> Option<i64> {
         match *self {
             Value::Signed(Sign::Positive, int) | Value::Unsigned(int) => {
-                let u = int.as_u64()?;
+                let u: u64 = int.as_int()?;
                 u.try_into().ok()
             }
-            Value::Signed(Sign::Negative, int) => {
-                match int.as_u64()? {
-                    u @ 0..=I64_MAX_AS_U64 => Some(-(u as i64)),
-                    u @ I64_MIN_AS_U64 => Some(u as i64),
-                    _ => None,
-                }
-            }
+            Value::Signed(Sign::Negative, int) => match int.as_int()? {
+                u @ 0..=I64_MAX_AS_U64 => Some(-(u as i64)),
+                u @ I64_MIN_AS_U64 => Some(u as i64),
+                _ => None,
+            },
             _ => None,
         }
     }
 
     pub fn as_u128(&self) -> Option<u128> {
         match *self {
-            Value::Signed(Sign::Positive, int) => int.as_u128(),
-            Value::Unsigned(int) => int.as_u128(),
+            Value::Signed(Sign::Positive, int) | Value::Unsigned(int) => int.as_int(),
             _ => None,
         }
     }
@@ -305,30 +304,28 @@ impl Value {
     pub fn as_i128(&self) -> Option<i128> {
         match *self {
             Value::Signed(Sign::Positive, int) | Value::Unsigned(int) => {
-                let u = int.as_u128()?;
+                let u: u128 = int.as_int()?;
                 u.try_into().ok()
             }
-            Value::Signed(Sign::Negative, int) => {
-                match int.as_u128()? {
-                    u @ 0..=I128_MAX_AS_U128 => Some(-(u as i128)),
-                    u @ I128_MIN_AS_U128 => Some(u as i128),
-                    _ => None,
-                }
-            }
+            Value::Signed(Sign::Negative, int) => match int.as_int()? {
+                u @ 0..=I128_MAX_AS_U128 => Some(-(u as i128)),
+                u @ I128_MIN_AS_U128 => Some(u as i128),
+                _ => None,
+            },
             _ => None,
         }
     }
 
     pub fn as_f32(&self) -> Option<f32> {
         match *self {
-            Value::Float(this) => Some(this.as_f32()),
+            Value::Float(this) => Some(this.as_float()),
             _ => None,
         }
     }
 
     pub fn as_f64(&self) -> Option<f64> {
         match *self {
-            Value::Float(this) => Some(this.as_f64()),
+            Value::Float(this) => Some(this.as_float()),
             _ => None,
         }
     }
