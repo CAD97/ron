@@ -1,9 +1,16 @@
 //! The `Value` enum, a loosely typed way of representing any RON value.
 
+mod de;
+mod ser;
+mod fmt;
+mod transcode_ser;
+mod transcode_de;
+
 use std::{
     cmp::Ordering,
     convert::TryInto,
     hash::{self, Hash},
+    iter::FromIterator,
 };
 
 #[test]
@@ -17,7 +24,7 @@ fn value_structure_sizes() {
 }
 
 /// An arbitrary value in a RON document.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub enum Value {
     // compound types
     /// A heterogeneous record, written with `( ... )`.
@@ -72,7 +79,7 @@ pub enum Value {
     Char(char),
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 /// A heterogeneous record, written with `( ... )`.
 ///
 /// Corresponds to the `serde` types `option`, `unit`, `unit_struct`,
@@ -80,15 +87,29 @@ pub enum Value {
 /// `tuple_struct`, `tuple_variant`, `struct`, and `struct_variant`.
 pub struct Struct {
     /// The (optional) name of the record.
-    pub name: Option<Box<str>>,
+    //  This has to be &'static for serde :(
+    pub name: Option<&'static str>,
     /// The (optional) fields of the record.
     pub fields: Option<Box<Fields>>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum Fields {
-    Named(Map<Box<str>, Value>),
+    // This has to be &'static for serde :(
+    Named(Map<&'static str, Value>),
     Unnamed(Vec<Value>),
+}
+
+impl FromIterator<(&'static str, Value)> for Fields {
+    fn from_iter<T: IntoIterator<Item = (&'static str, Value)>>(iter: T) -> Self {
+        Fields::Named(iter.into_iter().collect())
+    }
+}
+
+impl FromIterator<Value> for Fields {
+    fn from_iter<T: IntoIterator<Item = Value>>(iter: T) -> Self {
+        Fields::Unnamed(iter.into_iter().collect())
+    }
 }
 
 /// A dynamic record, written with `{ ... }`.
@@ -97,23 +118,54 @@ pub enum Fields {
 /// values are homogeneous, but this is still required for well-formed RON.
 ///
 /// Corresponds to the `serde` type `map`.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Map<Key: Eq + Hash, Val> {
     raw: Box<indexmap::IndexMap<Key, Val>>,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+impl<Key: Eq + Hash, Val> Default for Map<Key, Val> {
+    fn default() -> Self {
+        Map {
+            raw: Default::default(),
+        }
+    }
+}
+
+impl<Key: Eq + Hash, Val> Map<Key, Val> {
+    pub fn new() -> Self {
+        Map::default()
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (&Key, &Val)> {
+        self.raw.iter()
+    }
+    pub fn len(&self) -> usize {
+        self.raw.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.raw.is_empty()
+    }
+}
+
+impl<Key: Eq + Hash, Val> FromIterator<(Key, Val)> for Map<Key, Val> {
+    fn from_iter<T: IntoIterator<Item = (Key, Val)>>(iter: T) -> Self {
+        Map {
+            raw: Box::new(iter.into_iter().collect()),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Sign {
     Positive,
     Negative,
 }
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Integer {
     pub(crate) raw: u128,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct Float {
     pub(crate) raw: f64,
 }
@@ -123,12 +175,12 @@ pub struct Float {
 impl<Key: Eq + Hash, Val: Eq> Eq for Map<Key, Val> {}
 impl<Key: Eq + Hash, Val: PartialEq> PartialEq for Map<Key, Val> {
     fn eq(&self, other: &Self) -> bool {
-        self.raw.iter().eq(other.raw.iter())
+        self.iter().eq(other.iter())
     }
 }
 impl<Key: Eq + Hash, Val: Hash> Hash for Map<Key, Val> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.raw.iter().for_each(|x| x.hash(state))
+        self.iter().for_each(|x| x.hash(state))
     }
 }
 
@@ -335,3 +387,17 @@ const I64_MAX_AS_U64: u64 = i64::MAX as u64;
 const I64_MIN_AS_U64: u64 = i64::MIN as u64;
 const I128_MAX_AS_U128: u128 = i128::MAX as u128;
 const I128_MIN_AS_U128: u128 = i128::MIN as u128;
+
+pub fn to_value<T>(value: T) -> crate::Result<Value>
+where
+    T: serde::Serialize,
+{
+    value.serialize(transcode_ser::Serializer)
+}
+
+pub fn from_value<T>(value: Value) -> crate::Result<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    T::deserialize(value)
+}
